@@ -1,6 +1,7 @@
+
 from django.contrib import admin
 
-from .models import Category, Post, PostImage, PostVideo, Review
+from .models import Category, Post, PostImage, PostVideo, Favorite, Review, Like
 
 
 class PostImageInline(admin.TabularInline):
@@ -19,4 +20,6 @@ class PostAdmin(admin.ModelAdmin):
 
 admin.site.register(Category)
 admin.site.register(Post, PostAdmin)
+admin.site.register(Favorite)
 admin.site.register(Review)
+admin.site.register(Like)

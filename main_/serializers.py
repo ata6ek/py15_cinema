@@ -1,6 +1,9 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from main_.models import Category, Post, PostImage, PostVideo, Review
+from main_.models import Category, Post, PostImage, PostVideo, Favorite, Review, Like
+
+User = get_user_model()
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -16,7 +19,8 @@ class PostListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Post
-        fields = ['id', 'title', 'text', 'category', 'reviews', 'created_at', 'user', 'image', 'video']
+        # exclude = ['user']
+        fields = ['id', 'title', 'text', 'category', 'reviews', 'user', 'created_at', 'image', 'video']
 
     def get_image(self, post):
         first_image = post.pics.first()
@@ -30,6 +34,10 @@ class PostListSerializer(serializers.ModelSerializer):
             return first_video.video.url
         return ''
 
+    def is_favorited(self, post):
+        user = self.context.get('request').user
+        return user.favorited.filter(post=post).exists()
+
     def is_liked(self, post):
         user = self.context.get('request').user
         return user.liked.filter(post=post).exists()
@@ -38,8 +46,18 @@ class PostListSerializer(serializers.ModelSerializer):
         representation = super().to_representation(instance)
         user = self.context.get('request').user
         if user.is_authenticated:
+            representation['is_favorited'] = self.is_favorited(instance)
             representation['is_liked'] = self.is_liked(instance)
-        return representation
+        representation['likes_count'] = instance.likes.count()
+        rating = ReviewSerializer(instance.reviews.all(), many=True).data
+        try:
+            fl = 0
+            for ordered_dict in rating:
+                fl += ordered_dict.get('rating')
+            representation['rating_average'] = round(fl / instance.reviews.all().count(), 1)
+            return representation
+        except ZeroDivisionError:
+            return representation
 
 
 class ReviewSerializer(serializers.ModelSerializer):
@@ -50,6 +68,22 @@ class ReviewSerializer(serializers.ModelSerializer):
         model = Review
         exclude = ['user']
 
+    def validate(self, attrs):
+        user = self.context.get('request').user
+        post = attrs.get('post')
+        try:
+            rating = Review.objects.filter(user=user)
+            reviews = Review.objects.filter(post=post)
+            # reviews = [reviews[i] for i in range(len(reviews))]
+            # reviews = [str(reviews[i]) for i in range(len(reviews))]
+            # print(rating, reviews)
+            for i in rating:
+                if i in reviews:
+                    raise serializers.ValidationError('Вы уже оставили отзыв')
+            return attrs
+        except IndexError:
+            return attrs
+
     def create(self, validated_data):
         user = self.context['request'].user
         validated_data['user'] = user
@@ -59,6 +93,48 @@ class ReviewSerializer(serializers.ModelSerializer):
     #     user = self.context['request'].user
     #     validated_data['author'] = user
     #     return super().create(validated_data)
+
+
+class FavoritesListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Favorite
+        fields = ['user']
+
+    user = serializers.EmailField(required=True)
+
+    def validate_user(self, email):
+        if not User.objects.filter(email=email).exists():
+            raise serializers.ValidationError('Пользователь не найден')
+        return email
+
+    def validate(self, attrs):
+        user = attrs.get('user')
+        favorites_queryset = Favorite.objects.filter(user=user)
+        favorites_queryset = [favorites_queryset[i] for i in range(len(favorites_queryset))]
+        favorites = [str(favorites_queryset[i]) for i in range(len(favorites_queryset))]
+        attrs['user'] = favorites
+        return attrs
+
+
+class LikesListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Like
+        fields = ['user']
+
+    user = serializers.EmailField(required=True)
+
+    def validate_user(self, email):
+        if not User.objects.filter(email=email).exists():
+            raise serializers.ValidationError('Пользователь не найден')
+        return email
+
+    def validate(self, attrs):
+        user = attrs.get('user')
+        likes_queryset = Like.objects.filter(user=user)
+        likes_queryset = [likes_queryset[i] for i in range(len(likes_queryset))]
+        likes = [str(likes_queryset[i]) for i in range(len(likes_queryset))]
+        attrs['user'] = likes
+        return attrs
 
 
 class PostImageSerializer(serializers.ModelSerializer):
@@ -83,7 +159,6 @@ class PostSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Post
-        # exclude = ['user', ]
         fields = ['id', 'title', 'text', 'category', 'reviews', 'images', 'videos', 'created_at']
 
     def create(self, validated_data):
@@ -109,6 +184,10 @@ class PostSerializer(serializers.ModelSerializer):
                 PostVideo.objects.create(post=instance, video=video)
         return super().update(instance, validated_data)
 
+    def is_favorited(self, post):
+        user = self.context.get('request').user
+        return user.favorited.filter(post=post).exists()
+
     def is_liked(self, post):
         user = self.context.get('request').user
         return user.liked.filter(post=post).exists()
@@ -120,7 +199,16 @@ class PostSerializer(serializers.ModelSerializer):
         representation['reviews'] = ReviewSerializer(instance.reviews.all(), many=True).data
         user = self.context.get('request').user
         if user.is_authenticated:
+            representation['is_favorited'] = self.is_favorited(instance)
             representation['is_liked'] = self.is_liked(instance)
-        representation['likes_count'] = instance.favorites.count()
-        return representation
+        representation['likes_count'] = instance.likes.count()
+        rating = ReviewSerializer(instance.reviews.all(), many=True).data
+        try:
+            fl = 0
+            for ordered_dict in rating:
+                fl += ordered_dict.get('rating')
+            representation['rating_average'] = round(fl / instance.reviews.all().count(), 1)
+            return representation
+        except ZeroDivisionError:
+            return representation
 

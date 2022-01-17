@@ -7,9 +7,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, GenericViewSet
 
-from main_.models import Category, Post, Review, Favorites
-from main_.permissions import IsAuthor
-from main_.serializers import CategorySerializer, PostSerializer, PostListSerializer, ReviewSerializer
+from main_.models import Category, Post, Favorite, Review, Like
+from main_.permissions import IsAuthor, IsAdmin
+from main_.serializers import CategorySerializer, PostSerializer, PostListSerializer, \
+    FavoritesListSerializer, LikesListSerializer, ReviewSerializer
 
 
 # class CategoriesListView(ListAPIView):
@@ -20,7 +21,7 @@ from main_.serializers import CategorySerializer, PostSerializer, PostListSerial
 class CategoryViewSet(ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
-    permission_classes = [IsAuthor]
+    permission_classes = [IsAdmin]
 
 
 class PostViewSet(ModelViewSet):
@@ -38,11 +39,11 @@ class PostViewSet(ModelViewSet):
 
     def get_permissions(self):
         #создавать пост может залогиненный пользователь
-        if self.action in ['create', 'add_to_favorites', 'remove_from_favorites']:
+        if self.action in ['add_to_favorites', 'remove_from_favorites']:
             return [IsAuthenticated()]
         # изменять и удалять только автор
-        elif self.action in ['update', 'partial_update', 'destroy']:
-            return [IsAuthor()]
+        elif self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAdmin()]
         # просматривать могут все
         return []
 
@@ -53,28 +54,47 @@ class PostViewSet(ModelViewSet):
         serializer = ReviewSerializer(reviews, many=True)
         return Response(serializer.data)
 
-    #api/v1/posts/id/add_to_favorites/
+    # api/v1/posts/id/add_to_favorites/
     @action(['POST'], detail=True)
     def add_to_favorites(self, request, pk=None):
         post = self.get_object()
-        if request.user.liked.filter(post=post).exists():
-            return Response('Пост уже находится в избранных')
-        Favorites.objects.create(post=post, user=request.user)
+        if request.user.favorited.filter(post=post).exists():
+            return Response('Фильм уже находится в избранных')
+        Favorite.objects.create(post=post, user=request.user)
         return Response('Добавлено в избранное')
 
+    # api/v1/posts/id/remove_from_favorites/
     @action(['POST'], detail=True)
     def remove_from_favorites(self, request, pk=None):
         post = self.get_object()
+        if not request.user.favorited.filter(post=post).exists():
+            return Response('Фильм не находится в списке избранных')
+        request.user.favorited.filter(post=post).delete()
+        return Response('Фильм удалён из избранных')
+
+    # api/v1/posts/id/like/
+    @action(['POST'], detail=True)
+    def like(self, request, pk=None):
+        post = self.get_object()
+        if request.user.liked.filter(post=post).exists():
+            return Response('Фильм уже залайкан')
+        Like.objects.create(post=post, user=request.user)
+        return Response('Вы поставили лайк фильму')
+
+    # api/v1/posts/id/dislike/
+    @action(['POST'], detail=True)
+    def dislike(self, request, pk=None):
+        post = self.get_object()
         if not request.user.liked.filter(post=post).exists():
-            return Response('Пост не находится в списке избранных')
+            return Response('Фильм не залайкан')
         request.user.liked.filter(post=post).delete()
-        return Response('Пост удалён из избранных')
+        return Response('Вы убрали лайк с фильма')
 
 
 class ReviewViewSet(CreateModelMixin,
-                     UpdateModelMixin,
-                     DestroyModelMixin,
-                     GenericViewSet):
+                    UpdateModelMixin,
+                    DestroyModelMixin,
+                    GenericViewSet):
         queryset = Review.objects.all()
         serializer_class = ReviewSerializer
 
@@ -88,13 +108,29 @@ class ReviewViewSet(CreateModelMixin,
             # просматривать
 
 
+class FavoritesListView(ListAPIView):
+    queryset = Favorite.objects.all()
+    permission_classes = [IsAuthenticated]
+    serializer_class = FavoritesListSerializer
+
+    def get(self, request):
+        data = request.data
+        serializer = FavoritesListSerializer(data=data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        return Response(serializer.data)
 
 
-# TODO: likes
-# TODO: favorites
-# TODO: pagination, filter
-# TODO: rating
-# TODO: swagger
+class LikesListView(ListAPIView):
+    queryset = Like.objects.all()
+    permission_classes = [IsAuthenticated]
+    serializer_class = LikesListSerializer
+
+    def get(self, request):
+        data = request.data
+        serializer = LikesListSerializer(data=data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        return Response(serializer.data)
+
 # TODO: celery
 # TODO: presentation
 # TODO: video-youtube
