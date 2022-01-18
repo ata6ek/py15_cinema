@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from main_.models import Category, Post, PostImage, PostVideo, Favorite, Review, Like
+from main_.tasks import send_new_series
 
 User = get_user_model()
 
@@ -171,6 +172,7 @@ class PostSerializer(serializers.ModelSerializer):
             PostVideo.objects.create(post=post, video=video)
         for image in images:
             PostImage.objects.create(post=post, image=image)
+        send_new_series.delay()
         return post
 
     def update(self, instance, validated_data):
